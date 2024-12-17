@@ -1,51 +1,97 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Net.Http;
 using System.Threading.Tasks;
-using System.Collections.Generic;
 
-class Program
+namespace EndpointCheckerApp
 {
-    static async Task Main(string[] args)
+    public class EndpointChecker
     {
-        // Define your list of IP addresses
-        List<string> ipAddresses = new List<string>()
-        {
-            "192.168.1.1",
-            "192.168.1.2",
-            "192.168.1.3"
-        };
+        private readonly HttpClient _httpClient;
 
-        // Define the endpoint (assuming the web service is hosted at /service.asmx?WSDL)
-        string endpoint = "/service.asmx?WSDL";
-
-        // Loop through each IP address and check accessibility
-        using (HttpClient client = new HttpClient())
+        public EndpointChecker()
         {
+            _httpClient = new HttpClient();
+        }
+
+        public async Task CheckEndpointsAsync(List<string> ipAddresses, List<string> endpoints, string logFilePath)
+        {
+            var tasks = new List<Task<string>>();
+
             foreach (string ip in ipAddresses)
             {
-                string url = $"http://{ip}{endpoint}";
-
-                try
+                foreach (string endpoint in endpoints)
                 {
-                    // Send a GET request to the web service
-                    HttpResponseMessage response = await client.GetAsync(url);
+                    string url = $"http://{ip}{endpoint}";
+                    tasks.Add(CheckEndpointAsync(url));
+                }
+            }
 
-                    // Check if the service is accessible (HTTP status 200 OK)
-                    if (response.IsSuccessStatusCode)
-                    {
-                        Console.WriteLine($"Web service is accessible at {url} (Status: {response.StatusCode})");
-                    }
-                    else
-                    {
-                        Console.WriteLine($"Web service at {url} returned status code: {response.StatusCode}");
-                    }
-                }
-                catch (HttpRequestException ex)
+            string[] results = await Task.WhenAll(tasks);
+
+            await File.WriteAllLinesAsync(logFilePath, results);
+            Console.WriteLine($"Results logged to: {logFilePath}");
+        }
+
+        private async Task<string> CheckEndpointAsync(string url)
+        {
+            try
+            {
+                HttpResponseMessage response = await _httpClient.GetAsync(url);
+
+                if (response.IsSuccessStatusCode)
                 {
-                    // Handle any network-related or service access errors
-                    Console.WriteLine($"Error accessing web service at {url}: {ex.Message}");
+                    return $"Web service is accessible at {url} (Status: {response.StatusCode})";
                 }
+                else
+                {
+                    return $"Web service at {url} returned status code: {response.StatusCode}";
+                }
+            }
+            catch (HttpRequestException ex)
+            {
+                return $"Error accessing web service at {url}: {ex.Message}";
             }
         }
     }
 }
+
+///////////////////////////////
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+
+namespace EndpointCheckerApp
+{
+    class Program
+    {
+        static async Task Main(string[] args)
+        {
+            // Define your list of IP addresses
+            List<string> ipAddresses = new List<string>
+            {
+                "192.168.1.1",
+                "192.168.1.2",
+                "192.168.1.3"
+            };
+
+            // Define your list of endpoints
+            List<string> endpoints = new List<string>
+            {
+                "/service1.asmx?WSDL",
+                "/service2.asmx?WSDL",
+                "/api/health",
+                "/api/status"
+            };
+
+            // Specify the log file path
+            string logFilePath = "EndpointCheckResults.txt";
+
+            // Create an instance of EndpointChecker and perform checks
+            var checker = new EndpointChecker();
+            await checker.CheckEndpointsAsync(ipAddresses, endpoints, logFilePath);
+        }
+    }
+}
+
